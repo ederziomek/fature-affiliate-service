@@ -3,6 +3,8 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const { Pool } = require('pg');
+const MLMProcessor = require('./MLMProcessor');
+const SyncScheduler = require('./SyncScheduler');
 require('dotenv').config();
 
 const app = express();
@@ -36,6 +38,13 @@ app.use(cors());
 app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Inicializar processador MLM e agendador
+const mlmProcessor = new MLMProcessor(faturePool, externalPool);
+const syncScheduler = new SyncScheduler(faturePool, externalPool);
+
+// Iniciar agendamentos automáticos
+syncScheduler.start();
 
 // Health check endpoint
 app.get('/health', async (req, res) => {
@@ -356,6 +365,52 @@ app.post('/api/v1/sync/affiliates', async (req, res) => {
         res.status(500).json({
             status: 'error',
             message: 'Erro na sincronização de afiliados',
+            error: error.message
+        });
+    }
+});
+
+// Endpoint para processamento MLM completo
+app.post('/api/v1/mlm/process', async (req, res) => {
+    try {
+        console.log('🔄 Iniciando processamento MLM manual...');
+        
+        const result = await mlmProcessor.processAllMLMNetworks();
+        
+        res.json({
+            status: 'success',
+            message: 'Processamento MLM concluído',
+            data: result
+        });
+
+    } catch (error) {
+        console.error('Erro no processamento MLM:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Erro no processamento MLM',
+            error: error.message
+        });
+    }
+});
+
+// Endpoint para sincronização incremental
+app.post('/api/v1/sync/incremental', async (req, res) => {
+    try {
+        console.log('🔄 Iniciando sincronização incremental manual...');
+        
+        const result = await mlmProcessor.incrementalSync();
+        
+        res.json({
+            status: 'success',
+            message: 'Sincronização incremental concluída',
+            data: result
+        });
+
+    } catch (error) {
+        console.error('Erro na sincronização incremental:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Erro na sincronização incremental',
             error: error.message
         });
     }
