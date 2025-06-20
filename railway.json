@@ -16,6 +16,7 @@
         "NODE_ENV": "production",
         "PORT": "3000",
         "LOG_LEVEL": "info",
+        "DATABASE_URL": "${{Postgres.DATABASE_URL}}",
         "EXTERNAL_DB_HOST": "177.115.223.216",
         "EXTERNAL_DB_PORT": "5999",
         "EXTERNAL_DB_NAME": "dados_interno",

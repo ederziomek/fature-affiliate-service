@@ -11,15 +11,44 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const SERVICE_NAME = 'affiliate-service';
 
-// Configuração dos bancos de dados
-const faturePool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
-});
+// Debug das variáveis de ambiente
+console.log('🔍 Variáveis de ambiente detectadas:');
+console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'DEFINIDA' : 'NÃO DEFINIDA');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('PORT:', process.env.PORT);
 
+// Configuração flexível do banco Fature
+let faturePool;
+const databaseUrl = process.env.DATABASE_URL || 
+                   process.env.POSTGRES_URL || 
+                   process.env.DB_URL ||
+                   process.env.RAILWAY_DATABASE_URL;
+
+if (databaseUrl) {
+  console.log('✅ Conectando ao banco Fature via URL');
+  faturePool = new Pool({
+    connectionString: databaseUrl,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+  });
+} else {
+  console.log('⚠️ URL do banco não encontrada, usando configuração manual');
+  faturePool = new Pool({
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    database: process.env.DB_NAME || 'fature_db',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || 'password',
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+  });
+}
+
+// Configuração do banco externo (operação)
 const externalPool = new Pool({
   host: process.env.EXTERNAL_DB_HOST || '177.115.223.216',
   port: process.env.EXTERNAL_DB_PORT || 5999,
@@ -29,7 +58,7 @@ const externalPool = new Pool({
   ssl: false,
   max: 10,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
+  connectionTimeoutMillis: 10000,
 });
 
 // Middleware
@@ -39,34 +68,75 @@ app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Inicializar processador MLM e agendador
-const mlmProcessor = new MLMProcessor(faturePool, externalPool);
-const syncScheduler = new SyncScheduler(faturePool, externalPool);
+// Inicializar processador MLM e agendador (apenas se banco Fature estiver disponível)
+let mlmProcessor, syncScheduler;
 
-// Iniciar agendamentos automáticos
-syncScheduler.start();
+if (databaseUrl) {
+  mlmProcessor = new MLMProcessor(faturePool, externalPool);
+  syncScheduler = new SyncScheduler(faturePool, externalPool);
+  
+  // Iniciar agendamentos automáticos
+  syncScheduler.start();
+  console.log('✅ MLM Processor e Scheduler inicializados');
+} else {
+  console.log('⚠️ MLM Processor não inicializado - banco Fature não configurado');
+}
 
 // Health check endpoint
 app.get('/health', async (req, res) => {
     try {
-        // Testar conexão com banco do Fature
-        const fatureTest = await faturePool.query('SELECT NOW()');
-        
-        // Testar conexão com banco da operação
-        const externalTest = await externalPool.query('SELECT NOW()');
-        
-        res.status(200).json({
+        const healthStatus = {
             status: 'ok',
             service: SERVICE_NAME,
             timestamp: new Date().toISOString(),
             version: '2.0.0',
             environment: process.env.NODE_ENV || 'development',
-            databases: {
-                fature: 'connected',
-                external: 'connected'
+            databases: {},
+            config: {
+                database_url_configured: !!databaseUrl,
+                mlm_processor_active: !!mlmProcessor,
+                scheduler_active: !!syncScheduler
             }
-        });
+        };
+
+        // Testar conexão com banco do Fature (se configurado)
+        if (databaseUrl) {
+            try {
+                const fatureTest = await faturePool.query('SELECT NOW()');
+                healthStatus.databases.fature = 'connected';
+                console.log('✅ Banco Fature: conectado');
+            } catch (error) {
+                healthStatus.databases.fature = `error: ${error.message}`;
+                console.log('❌ Banco Fature:', error.message);
+            }
+        } else {
+            healthStatus.databases.fature = 'not_configured';
+            console.log('⚠️ Banco Fature: não configurado');
+        }
+        
+        // Testar conexão com banco da operação
+        try {
+            const externalTest = await externalPool.query('SELECT NOW()');
+            healthStatus.databases.external = 'connected';
+            console.log('✅ Banco Operação: conectado');
+        } catch (error) {
+            healthStatus.databases.external = `error: ${error.message}`;
+            console.log('❌ Banco Operação:', error.message);
+        }
+        
+        // Se pelo menos um banco estiver funcionando, retorna 200
+        const hasWorkingDatabase = healthStatus.databases.external === 'connected' || 
+                                  healthStatus.databases.fature === 'connected';
+        
+        if (hasWorkingDatabase) {
+            res.status(200).json(healthStatus);
+        } else {
+            healthStatus.status = 'degraded';
+            res.status(500).json(healthStatus);
+        }
+        
     } catch (error) {
+        console.log('❌ Health check error:', error.message);
         res.status(500).json({
             status: 'error',
             service: SERVICE_NAME,
