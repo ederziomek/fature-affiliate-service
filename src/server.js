@@ -188,6 +188,28 @@ app.get(`/api/v1/${SERVICE_NAME}`, (req, res) => {
     });
 });
 
+// Endpoint para debug de variáveis de ambiente
+app.get('/debug/env', (req, res) => {
+    const envVars = {};
+    
+    // Listar todas as variáveis que começam com DATABASE, POSTGRES, DB
+    Object.keys(process.env).forEach(key => {
+        if (key.includes('DATABASE') || 
+            key.includes('POSTGRES') || 
+            key.includes('DB') ||
+            key.includes('RAILWAY')) {
+            envVars[key] = process.env[key] ? 'DEFINIDA' : 'VAZIA';
+        }
+    });
+    
+    res.json({
+        service: 'affiliate-service',
+        available_env_vars: envVars,
+        current_database_url: databaseUrl ? 'CONFIGURADA' : 'NÃO CONFIGURADA',
+        database_url_value: databaseUrl ? databaseUrl.substring(0, 50) + '...' : 'NENHUMA'
+    });
+});
+
 // Endpoint para buscar afiliados
 app.get('/api/v1/affiliates', async (req, res) => {
     try {
