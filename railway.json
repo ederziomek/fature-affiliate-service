@@ -1,0 +1,35 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "startCommand": "npm start",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 60,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  },
+  "environments": {
+    "production": {
+      "variables": {
+        "NODE_ENV": "production",
+        "PORT": "3000",
+        "LOG_LEVEL": "info",
+        "EXTERNAL_DB_HOST": "177.115.223.216",
+        "EXTERNAL_DB_PORT": "5999",
+        "EXTERNAL_DB_NAME": "dados_interno",
+        "EXTERNAL_DB_USER": "userschapz",
+        "EXTERNAL_DB_PASSWORD": "mschaphz8881!",
+        "EXTERNAL_DB_SSL": "false",
+        "MLM_MAX_LEVELS": "5",
+        "SYNC_INTERVAL_MINUTES": "30",
+        "BATCH_SIZE": "1000",
+        "MAX_RETRIES": "3",
+        "COMMISSION_RATES": "{\"1\": 0.05, \"2\": 0.03, \"3\": 0.02, \"4\": 0.01, \"5\": 0.005}",
+        "CACHE_TTL_HOURS": "24"
+      }
+    }
+  }
+}
+
