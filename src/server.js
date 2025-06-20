@@ -17,36 +17,33 @@ console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'DEFINIDA' : 'NÃO DEFIN
 console.log('NODE_ENV:', process.env.NODE_ENV);
 console.log('PORT:', process.env.PORT);
 
-// Configuração flexível do banco Fature
+// Configuração forçada do banco Fature com fallback
 let faturePool;
 const databaseUrl = process.env.DATABASE_URL || 
                    process.env.POSTGRES_URL || 
                    process.env.DB_URL ||
-                   process.env.RAILWAY_DATABASE_URL;
+                   process.env.RAILWAY_DATABASE_URL ||
+                   'postgresql://postgres:VJmQNlGNdqJOhOJQZJdLCGGqCNJqKGdE@junction.proxy.rlwy.net:26847/railway';
 
-if (databaseUrl) {
-  console.log('✅ Conectando ao banco Fature via URL');
-  faturePool = new Pool({
-    connectionString: databaseUrl,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
+console.log('🔗 Usando URL do banco:', databaseUrl.substring(0, 30) + '...');
+
+faturePool = new Pool({
+  connectionString: databaseUrl,
+  ssl: { rejectUnauthorized: false },
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
+});
+
+// Teste de conexão imediato
+faturePool.connect()
+  .then(client => {
+    console.log('✅ Conexão com banco Fature estabelecida com sucesso!');
+    client.release();
+  })
+  .catch(err => {
+    console.error('❌ Erro ao conectar com banco Fature:', err.message);
   });
-} else {
-  console.log('⚠️ URL do banco não encontrada, usando configuração manual');
-  faturePool = new Pool({
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 5432,
-    database: process.env.DB_NAME || 'fature_db',
-    user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || 'password',
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
-  });
-}
 
 // Configuração do banco externo (operação)
 const externalPool = new Pool({

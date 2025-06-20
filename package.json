@@ -4,7 +4,7 @@
   "description": "Microserviço affiliate-service do Sistema Fature",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js",
+    "start": "NODE_ENV=production DATABASE_URL=postgresql://postgres:VJmQNlGNdqJOhOJQZJdLCGGqCNJqKGdE@junction.proxy.rlwy.net:26847/railway node src/server.js",
     "dev": "nodemon src/server.js",
     "test": "jest"
   },
