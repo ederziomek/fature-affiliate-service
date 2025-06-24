@@ -617,9 +617,9 @@ app.get('/api/v1/affiliates/stats', async (req, res) => {
                 COUNT(CASE WHEN status = 'active' THEN 1 END) as active_affiliates,
                 COUNT(CASE WHEN status = 'inactive' THEN 1 END) as inactive_affiliates,
                 COALESCE(SUM(total_referrals), 0) as total_referrals,
-                COALESCE(SUM(total_commissions_paid), 0) as total_commissions_paid,
+                COALESCE(SUM(total_cpa_earned), 0) as total_cpa_earned,
                 COALESCE(AVG(total_referrals), 0) as avg_referrals_per_affiliate,
-                COALESCE(AVG(total_commissions_paid), 0) as avg_commission_per_affiliate
+                COALESCE(AVG(total_cpa_earned), 0) as avg_cpa_per_affiliate
             FROM affiliates
         `;
 
@@ -629,10 +629,11 @@ app.get('/api/v1/affiliates/stats', async (req, res) => {
                 affiliate_id,
                 name,
                 total_referrals,
-                total_commissions_paid,
-                total_network_size
+                total_validated_referrals,
+                total_cpa_earned,
+                total_deposits
             FROM v_affiliate_dashboard
-            ORDER BY total_commissions_paid DESC
+            ORDER BY total_cpa_earned DESC
             LIMIT 10
         `;
 
@@ -651,9 +652,9 @@ app.get('/api/v1/affiliates/stats', async (req, res) => {
                     active_affiliates: parseInt(stats.active_affiliates),
                     inactive_affiliates: parseInt(stats.inactive_affiliates),
                     total_referrals: parseInt(stats.total_referrals),
-                    total_commissions_paid: parseFloat(stats.total_commissions_paid),
+                    total_cpa_earned: parseFloat(stats.total_cpa_earned),
                     avg_referrals_per_affiliate: parseFloat(stats.avg_referrals_per_affiliate).toFixed(2),
-                    avg_commission_per_affiliate: parseFloat(stats.avg_commission_per_affiliate).toFixed(2)
+                    avg_cpa_per_affiliate: parseFloat(stats.avg_cpa_per_affiliate).toFixed(2)
                 },
                 top_performers: topPerformersResult.rows,
                 generated_at: new Date().toISOString()
