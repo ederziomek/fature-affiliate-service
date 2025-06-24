@@ -734,6 +734,68 @@ app.get('/api/v1/affiliates/stats', async (req, res) => {
     }
 });
 
+// Endpoint de debug para verificar estrutura da tabela
+app.get('/api/v1/debug/table-structure', async (req, res) => {
+    try {
+        if (!faturePool) {
+            return res.status(503).json({
+                status: 'error',
+                message: 'Banco de dados Fature não configurado'
+            });
+        }
+
+        // Verificar estrutura da tabela affiliates
+        const tableInfo = await faturePool.query(`
+            SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns 
+            WHERE table_name = 'affiliates' 
+            ORDER BY ordinal_position
+        `);
+
+        // Verificar constraints
+        const constraints = await faturePool.query(`
+            SELECT constraint_name, constraint_type, column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
+            WHERE tc.table_name = 'affiliates'
+        `);
+
+        // Verificar se há dados na tabela
+        const count = await faturePool.query('SELECT COUNT(*) as total FROM affiliates');
+
+        // Tentar inserção simples para debug
+        let insertTest = null;
+        try {
+            await faturePool.query(`
+                INSERT INTO affiliates (external_id, name, status) 
+                VALUES ('DEBUG_TEST', 'Teste Debug', 'active')
+                ON CONFLICT (external_id) DO NOTHING
+            `);
+            insertTest = 'SUCCESS';
+        } catch (error) {
+            insertTest = error.message;
+        }
+
+        res.json({
+            status: 'success',
+            data: {
+                table_structure: tableInfo.rows,
+                constraints: constraints.rows,
+                current_count: parseInt(count.rows[0].total),
+                insert_test: insertTest
+            }
+        });
+
+    } catch (error) {
+        console.error('Erro no debug:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Erro ao verificar estrutura',
+            error: error.message
+        });
+    }
+});
+
 // Endpoint para inserir dados de teste
 app.post('/api/v1/admin/insert-test-data', async (req, res) => {
     try {
