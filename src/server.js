@@ -560,19 +560,18 @@ app.get('/api/v1/affiliates/ranking', async (req, res) => {
         }
 
         const limit = parseInt(req.query.limit) || 50;
-        const orderBy = req.query.order_by || 'cpa_ranking';
+        const orderBy = req.query.order_by || 'cpa_rank';
 
         const query = `
             SELECT 
                 affiliate_id,
                 name,
-                email,
-                total_referrals,
-                total_commissions_paid,
-                cpa_ranking,
-                referrals_ranking,
-                network_ranking,
-                total_network_size
+                total_validated_referrals,
+                total_cpa_earned,
+                total_network_size,
+                cpa_rank,
+                referrals_rank,
+                network_rank
             FROM v_affiliate_ranking
             ORDER BY ${orderBy} ASC
             LIMIT $1
