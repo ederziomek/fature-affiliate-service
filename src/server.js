@@ -754,7 +754,7 @@ app.get('/api/v1/debug/table-structure', async (req, res) => {
 
         // Verificar constraints
         const constraints = await faturePool.query(`
-            SELECT constraint_name, constraint_type, column_name
+            SELECT tc.constraint_name, tc.constraint_type, ccu.column_name
             FROM information_schema.table_constraints tc
             JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
             WHERE tc.table_name = 'affiliates'
