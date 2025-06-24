@@ -758,12 +758,13 @@ app.get('/api/v1/debug/table-structure', async (req, res) => {
         // Tentar inserção simples para debug
         let insertTest = null;
         try {
-            await faturePool.query(`
-                INSERT INTO affiliates (external_id, name, status) 
-                VALUES ('DEBUG_TEST', 'Teste Debug', 'active')
+            const result = await faturePool.query(`
+                INSERT INTO affiliates (affiliate_id, external_id, name, status) 
+                VALUES (nextval('affiliates_affiliate_id_seq'), 'DEBUG_TEST', 'Teste Debug', 'active')
                 ON CONFLICT (external_id) DO NOTHING
+                RETURNING affiliate_id
             `);
-            insertTest = 'SUCCESS';
+            insertTest = result.rows.length > 0 ? 'SUCCESS - ID: ' + result.rows[0].affiliate_id : 'SUCCESS - NO INSERT (CONFLICT)';
         } catch (error) {
             insertTest = error.message;
         }
@@ -818,8 +819,8 @@ app.post('/api/v1/admin/insert-test-data', async (req, res) => {
         for (const affiliate of testAffiliates) {
             try {
                 await faturePool.query(`
-                    INSERT INTO affiliates (external_id, name, email, status, total_referrals, total_cpa_earned, created_at, updated_at)
-                    VALUES ($1, $2, $3, 'active', $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    INSERT INTO affiliates (affiliate_id, external_id, name, email, status, total_referrals, total_cpa_earned, created_at, updated_at)
+                    VALUES (nextval('affiliates_affiliate_id_seq'), $1, $2, $3, 'active', $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     ON CONFLICT (external_id) 
                     DO UPDATE SET 
                         name = EXCLUDED.name,
