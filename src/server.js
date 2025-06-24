@@ -788,6 +788,81 @@ app.get('/api/v1/debug/table-structure', async (req, res) => {
     }
 });
 
+// Endpoint direto para inserir dados sem usar sequência
+app.post('/api/v1/admin/insert-direct', async (req, res) => {
+    try {
+        if (!faturePool) {
+            return res.status(503).json({
+                status: 'error',
+                message: 'Banco de dados Fature não configurado'
+            });
+        }
+
+        // Inserir dados diretamente com IDs incrementais
+        const testAffiliates = [
+            { external_id: 'AF001', name: 'João Silva', total_referrals: 15, total_cpa_earned: 750 },
+            { external_id: 'AF002', name: 'Maria Santos', total_referrals: 8, total_cpa_earned: 400 },
+            { external_id: 'AF003', name: 'Pedro Costa', total_referrals: 22, total_cpa_earned: 1100 },
+            { external_id: 'AF004', name: 'Ana Lima', total_referrals: 5, total_cpa_earned: 250 },
+            { external_id: 'AF005', name: 'Carlos Oliveira', total_referrals: 12, total_cpa_earned: 600 }
+        ];
+
+        let inserted = 0;
+        let startId = 1000; // Começar com ID 1000
+
+        for (let i = 0; i < testAffiliates.length; i++) {
+            const affiliate = testAffiliates[i];
+            try {
+                await faturePool.query(`
+                    INSERT INTO affiliates (affiliate_id, external_id, name, email, status, total_referrals, total_cpa_earned, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, 'active', $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT (external_id) 
+                    DO UPDATE SET 
+                        name = EXCLUDED.name,
+                        total_referrals = EXCLUDED.total_referrals,
+                        total_cpa_earned = EXCLUDED.total_cpa_earned,
+                        updated_at = CURRENT_TIMESTAMP
+                `, [
+                    startId + i,
+                    affiliate.external_id,
+                    affiliate.name,
+                    `${affiliate.external_id.toLowerCase()}@fature.com`,
+                    affiliate.total_referrals,
+                    affiliate.total_cpa_earned
+                ]);
+                
+                inserted++;
+                console.log(`✅ Inserido: ${affiliate.name} (ID: ${startId + i})`);
+                
+            } catch (error) {
+                console.error(`❌ Erro ao inserir ${affiliate.name}:`, error);
+            }
+        }
+
+        // Verificar total após inserção
+        const totalResult = await faturePool.query('SELECT COUNT(*) as total FROM affiliates');
+        const total = parseInt(totalResult.rows[0].total);
+
+        res.json({
+            status: 'success',
+            message: `${inserted} afiliados inseridos com sucesso`,
+            data: {
+                inserted,
+                total,
+                affiliates: testAffiliates
+            }
+        });
+
+    } catch (error) {
+        console.error('Erro ao inserir dados diretos:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Erro ao inserir dados de teste',
+            error: error.message
+        });
+    }
+});
+
 // Endpoint para inserir dados de teste
 app.post('/api/v1/admin/insert-test-data', async (req, res) => {
     try {
