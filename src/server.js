@@ -22,28 +22,31 @@ let faturePool;
 const databaseUrl = process.env.DATABASE_URL || 
                    process.env.POSTGRES_URL || 
                    process.env.DB_URL ||
-                   process.env.RAILWAY_DATABASE_URL ||
-                   'postgresql://postgres:VJmQNlGNdqJOhOJQZJdLCGGqCNJqKGdE@junction.proxy.rlwy.net:26847/railway';
+                   process.env.RAILWAY_DATABASE_URL;
 
-console.log('🔗 Usando URL do banco:', databaseUrl.substring(0, 30) + '...');
+console.log('🔗 Usando URL do banco:', databaseUrl ? databaseUrl.substring(0, 30) + '...' : 'NENHUMA CONFIGURADA');
 
-faturePool = new Pool({
-  connectionString: databaseUrl,
-  ssl: { rejectUnauthorized: false },
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
-});
-
-// Teste de conexão imediato
-faturePool.connect()
-  .then(client => {
-    console.log('✅ Conexão com banco Fature estabelecida com sucesso!');
-    client.release();
-  })
-  .catch(err => {
-    console.error('❌ Erro ao conectar com banco Fature:', err.message);
+if (databaseUrl) {
+  faturePool = new Pool({
+    connectionString: databaseUrl,
+    ssl: { rejectUnauthorized: false },
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
   });
+
+  // Teste de conexão imediato
+  faturePool.connect()
+    .then(client => {
+      console.log('✅ Conexão com banco Fature estabelecida com sucesso!');
+      client.release();
+    })
+    .catch(err => {
+      console.error('❌ Erro ao conectar com banco Fature:', err.message);
+    });
+} else {
+  console.log('⚠️ DATABASE_URL não configurada - banco Fature não será inicializado');
+}
 
 // Configuração do banco externo (operação)
 const externalPool = new Pool({
@@ -210,6 +213,14 @@ app.get('/debug/env', (req, res) => {
 // Endpoint para buscar afiliados
 app.get('/api/v1/affiliates', async (req, res) => {
     try {
+        if (!faturePool) {
+            return res.status(503).json({
+                status: 'error',
+                message: 'Banco de dados Fature não configurado',
+                error: 'DATABASE_URL não definida'
+            });
+        }
+
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 20;
         const offset = (page - 1) * limit;
