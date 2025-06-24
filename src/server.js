@@ -548,6 +548,129 @@ app.get('/api/v1/sync/status', async (req, res) => {
     }
 });
 
+// Endpoint para ranking de afiliados (usando view v_affiliate_ranking)
+app.get('/api/v1/affiliates/ranking', async (req, res) => {
+    try {
+        if (!faturePool) {
+            return res.status(503).json({
+                status: 'error',
+                message: 'Banco de dados Fature não configurado',
+                error: 'DATABASE_URL não definida'
+            });
+        }
+
+        const limit = parseInt(req.query.limit) || 50;
+        const orderBy = req.query.order_by || 'cpa_ranking';
+
+        const query = `
+            SELECT 
+                affiliate_id,
+                name,
+                email,
+                total_referrals,
+                total_commissions_paid,
+                cpa_ranking,
+                referrals_ranking,
+                network_ranking,
+                total_network_size
+            FROM v_affiliate_ranking
+            ORDER BY ${orderBy} ASC
+            LIMIT $1
+        `;
+
+        const result = await faturePool.query(query, [limit]);
+
+        res.json({
+            status: 'success',
+            data: {
+                rankings: result.rows,
+                order_by: orderBy,
+                limit: limit,
+                total_found: result.rows.length
+            }
+        });
+
+    } catch (error) {
+        console.error('Erro ao buscar ranking de afiliados:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Erro ao buscar ranking de afiliados',
+            error: error.message
+        });
+    }
+});
+
+// Endpoint para estatísticas gerais de afiliados (usando view v_affiliate_dashboard)
+app.get('/api/v1/affiliates/stats', async (req, res) => {
+    try {
+        if (!faturePool) {
+            return res.status(503).json({
+                status: 'error',
+                message: 'Banco de dados Fature não configurado',
+                error: 'DATABASE_URL não definida'
+            });
+        }
+
+        // Estatísticas gerais
+        const generalStatsQuery = `
+            SELECT 
+                COUNT(*) as total_affiliates,
+                COUNT(CASE WHEN status = 'active' THEN 1 END) as active_affiliates,
+                COUNT(CASE WHEN status = 'inactive' THEN 1 END) as inactive_affiliates,
+                COALESCE(SUM(total_referrals), 0) as total_referrals,
+                COALESCE(SUM(total_commissions_paid), 0) as total_commissions_paid,
+                COALESCE(AVG(total_referrals), 0) as avg_referrals_per_affiliate,
+                COALESCE(AVG(total_commissions_paid), 0) as avg_commission_per_affiliate
+            FROM affiliates
+        `;
+
+        // Top performers usando a view
+        const topPerformersQuery = `
+            SELECT 
+                affiliate_id,
+                name,
+                total_referrals,
+                total_commissions_paid,
+                total_network_size
+            FROM v_affiliate_dashboard
+            ORDER BY total_commissions_paid DESC
+            LIMIT 10
+        `;
+
+        const [generalResult, topPerformersResult] = await Promise.all([
+            faturePool.query(generalStatsQuery),
+            faturePool.query(topPerformersQuery)
+        ]);
+
+        const stats = generalResult.rows[0];
+
+        res.json({
+            status: 'success',
+            data: {
+                overview: {
+                    total_affiliates: parseInt(stats.total_affiliates),
+                    active_affiliates: parseInt(stats.active_affiliates),
+                    inactive_affiliates: parseInt(stats.inactive_affiliates),
+                    total_referrals: parseInt(stats.total_referrals),
+                    total_commissions_paid: parseFloat(stats.total_commissions_paid),
+                    avg_referrals_per_affiliate: parseFloat(stats.avg_referrals_per_affiliate).toFixed(2),
+                    avg_commission_per_affiliate: parseFloat(stats.avg_commission_per_affiliate).toFixed(2)
+                },
+                top_performers: topPerformersResult.rows,
+                generated_at: new Date().toISOString()
+            }
+        });
+
+    } catch (error) {
+        console.error('Erro ao buscar estatísticas de afiliados:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Erro ao buscar estatísticas de afiliados',
+            error: error.message
+        });
+    }
+});
+
 // Error handling
 app.use((err, req, res, next) => {
     console.error(err.stack);
