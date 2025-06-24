@@ -788,6 +788,159 @@ app.get('/api/v1/debug/table-structure', async (req, res) => {
     }
 });
 
+// Endpoint para testar conexão com banco da operação e verificar dados REAIS
+app.get('/api/v1/debug/operation-database', async (req, res) => {
+    try {
+        // Testar conexão com banco da operação
+        if (!externalPool) {
+            return res.status(503).json({
+                status: 'error',
+                message: 'Banco da operação não configurado',
+                details: 'externalPool não inicializado'
+            });
+        }
+
+        // Verificar dados REAIS na tabela tracked
+        const realDataQuery = await externalPool.query(`
+            SELECT 
+                external_id,
+                total_clients,
+                COUNT(*) OVER() as total_count
+            FROM tracked 
+            WHERE total_clients > 0 
+            ORDER BY total_clients DESC 
+            LIMIT 10
+        `);
+
+        // Verificar total de registros
+        const totalQuery = await externalPool.query('SELECT COUNT(*) as total FROM tracked WHERE total_clients > 0');
+        const totalReal = parseInt(totalQuery.rows[0].total);
+
+        // Testar conexão com banco Fature
+        let fatureStatus = 'NOT_CONFIGURED';
+        let fatureCount = 0;
+        
+        if (faturePool) {
+            try {
+                const fatureResult = await faturePool.query('SELECT COUNT(*) as total FROM affiliates');
+                fatureCount = parseInt(fatureResult.rows[0].total);
+                fatureStatus = 'CONNECTED';
+            } catch (error) {
+                fatureStatus = 'ERROR: ' + error.message;
+            }
+        }
+
+        res.json({
+            status: 'success',
+            data: {
+                operation_database: {
+                    status: 'CONNECTED',
+                    total_real_affiliates: totalReal,
+                    sample_data: realDataQuery.rows.slice(0, 5)
+                },
+                fature_database: {
+                    status: fatureStatus,
+                    current_count: fatureCount
+                },
+                sync_ready: totalReal > 0 && fatureStatus === 'CONNECTED'
+            }
+        });
+
+    } catch (error) {
+        console.error('Erro ao verificar banco da operação:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Erro ao conectar com banco da operação',
+            error: error.message
+        });
+    }
+});
+
+// Endpoint para sincronização REAL dos dados da operação (sem sequência)
+app.post('/api/v1/sync/real-affiliates', async (req, res) => {
+    try {
+        if (!externalPool || !faturePool) {
+            return res.status(503).json({
+                status: 'error',
+                message: 'Bancos de dados não configurados'
+            });
+        }
+
+        // Buscar dados REAIS do banco da operação
+        const externalResult = await externalPool.query(`
+            SELECT external_id, total_clients 
+            FROM tracked 
+            WHERE total_clients > 0 
+            ORDER BY total_clients DESC 
+            LIMIT 100
+        `);
+
+        if (externalResult.rows.length === 0) {
+            return res.json({
+                status: 'success',
+                message: 'Nenhum dado real encontrado para sincronizar',
+                data: { processed: 0, total: 0 }
+            });
+        }
+
+        let processed = 0;
+        let startId = 2000; // Começar com ID 2000 para dados reais
+
+        for (let i = 0; i < externalResult.rows.length; i++) {
+            const row = externalResult.rows[i];
+            try {
+                await faturePool.query(`
+                    INSERT INTO affiliates (affiliate_id, external_id, total_referrals, total_cpa_earned, name, email, status, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT (external_id) 
+                    DO UPDATE SET 
+                        total_referrals = EXCLUDED.total_referrals,
+                        total_cpa_earned = EXCLUDED.total_cpa_earned,
+                        updated_at = CURRENT_TIMESTAMP
+                `, [
+                    startId + i,
+                    row.external_id,
+                    row.total_clients, // Dados REAIS
+                    row.total_clients * 50.0, // CPA baseado em dados reais
+                    `Afiliado ${row.external_id}`,
+                    `${row.external_id.toLowerCase()}@fature.com`
+                ]);
+                
+                processed++;
+                
+                if (processed % 10 === 0) {
+                    console.log(`✅ Processados ${processed} afiliados reais...`);
+                }
+                
+            } catch (error) {
+                console.error(`❌ Erro ao processar afiliado real ${row.external_id}:`, error);
+            }
+        }
+
+        // Verificar total após sincronização
+        const totalResult = await faturePool.query('SELECT COUNT(*) as total FROM affiliates');
+        const total = parseInt(totalResult.rows[0].total);
+
+        res.json({
+            status: 'success',
+            message: `${processed} afiliados REAIS sincronizados com sucesso`,
+            data: {
+                processed,
+                total,
+                source: 'BANCO DA OPERAÇÃO - DADOS REAIS'
+            }
+        });
+
+    } catch (error) {
+        console.error('Erro na sincronização real:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Erro ao sincronizar dados reais',
+            error: error.message
+        });
+    }
+});
+
 // Endpoint direto para inserir dados sem usar sequência
 app.post('/api/v1/admin/insert-direct', async (req, res) => {
     try {
