@@ -456,7 +456,7 @@ app.post('/api/v1/sync/affiliates', async (req, res) => {
         
         for (const row of externalResult.rows) {
             try {
-                // Usar campos da estrutura original do banco
+                // Usar campos da estrutura real do banco
                 await faturePool.query(`
                     INSERT INTO affiliates (affiliate_id, external_id, total_referrals, total_cpa_earned, name, email, status, created_at, updated_at)
                     VALUES (nextval('affiliates_affiliate_id_seq'), $1, $2, $3, $4, $5, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -468,7 +468,7 @@ app.post('/api/v1/sync/affiliates', async (req, res) => {
                 `, [
                     row.external_id, 
                     row.total_clients, // Mapear para total_referrals
-                    row.total_clients * 50.0, // CPA simulado
+                    row.total_clients * 50.0, // CPA simulado para total_cpa_earned
                     `Afiliado ${row.external_id}`,
                     `${row.external_id.toLowerCase()}@fature.com`
                 ]);
