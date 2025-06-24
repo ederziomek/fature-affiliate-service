@@ -752,14 +752,6 @@ app.get('/api/v1/debug/table-structure', async (req, res) => {
             ORDER BY ordinal_position
         `);
 
-        // Verificar constraints
-        const constraints = await faturePool.query(`
-            SELECT tc.constraint_name, tc.constraint_type, ccu.column_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
-            WHERE tc.table_name = 'affiliates'
-        `);
-
         // Verificar se há dados na tabela
         const count = await faturePool.query('SELECT COUNT(*) as total FROM affiliates');
 
@@ -780,7 +772,6 @@ app.get('/api/v1/debug/table-structure', async (req, res) => {
             status: 'success',
             data: {
                 table_structure: tableInfo.rows,
-                constraints: constraints.rows,
                 current_count: parseInt(count.rows[0].total),
                 insert_test: insertTest
             }
