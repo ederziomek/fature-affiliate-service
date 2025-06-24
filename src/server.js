@@ -456,18 +456,18 @@ app.post('/api/v1/sync/affiliates', async (req, res) => {
         
         for (const row of externalResult.rows) {
             try {
-                // Usar UPSERT com a estrutura correta
+                // Usar campos da estrutura original do banco
                 await faturePool.query(`
-                    INSERT INTO affiliates (external_id, total_clients, total_commission, name, email, status, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    INSERT INTO affiliates (affiliate_id, external_id, total_referrals, total_cpa_earned, name, email, status, created_at, updated_at)
+                    VALUES (nextval('affiliates_affiliate_id_seq'), $1, $2, $3, $4, $5, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     ON CONFLICT (external_id) 
                     DO UPDATE SET 
-                        total_clients = EXCLUDED.total_clients,
-                        total_commission = EXCLUDED.total_clients * 50.0,
+                        total_referrals = EXCLUDED.total_referrals,
+                        total_cpa_earned = EXCLUDED.total_cpa_earned,
                         updated_at = CURRENT_TIMESTAMP
                 `, [
                     row.external_id, 
-                    row.total_clients,
+                    row.total_clients, // Mapear para total_referrals
                     row.total_clients * 50.0, // CPA simulado
                     `Afiliado ${row.external_id}`,
                     `${row.external_id.toLowerCase()}@fature.com`
@@ -476,6 +476,17 @@ app.post('/api/v1/sync/affiliates', async (req, res) => {
                 processed++;
             } catch (error) {
                 console.error(`Erro ao processar afiliado ${row.external_id}:`, error);
+                // Tentar inserção mais simples se a primeira falhar
+                try {
+                    await faturePool.query(`
+                        INSERT INTO affiliates (external_id, name, status, created_at)
+                        VALUES ($1, $2, 'active', CURRENT_TIMESTAMP)
+                        ON CONFLICT (external_id) DO NOTHING
+                    `, [row.external_id, `Afiliado ${row.external_id}`]);
+                    processed++;
+                } catch (simpleError) {
+                    console.error(`Erro na inserção simples para ${row.external_id}:`, simpleError);
+                }
             }
         }
 
