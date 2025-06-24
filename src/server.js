@@ -439,17 +439,26 @@ app.post('/api/v1/sync/affiliates', async (req, res) => {
         try {
             externalResult = await externalPool.query(externalQuery);
         } catch (error) {
-            console.log('Erro ao consultar banco externo, usando dados de teste:', error.message);
-            // Se não conseguir acessar o banco externo, usar dados de teste
-            externalResult = {
-                rows: [
-                    { external_id: 'REAL001', total_clients: 15 },
-                    { external_id: 'REAL002', total_clients: 8 },
-                    { external_id: 'REAL003', total_clients: 22 },
-                    { external_id: 'REAL004', total_clients: 5 },
-                    { external_id: 'REAL005', total_clients: 11 }
-                ]
-            };
+            console.error('Erro ao consultar banco externo:', error.message);
+            // Retornar erro ao invés de usar dados mockados
+            return res.status(503).json({
+                status: 'error',
+                message: 'Não foi possível acessar o banco da operação',
+                error: error.message,
+                note: 'Sincronização cancelada - apenas dados reais são permitidos'
+            });
+        }
+
+        if (!externalResult.rows || externalResult.rows.length === 0) {
+            return res.json({
+                status: 'success',
+                message: 'Nenhum afiliado real encontrado no banco da operação',
+                data: {
+                    processed: 0,
+                    total: 0,
+                    note: 'Não há dados reais para sincronizar'
+                }
+            });
         }
         
         let processed = 0;
@@ -645,10 +654,11 @@ app.get('/api/v1/affiliates/ranking', async (req, res) => {
         res.json({
             status: 'success',
             data: {
-                rankings: result.rows,
+                rankings: result.rows || [],
                 order_by: orderBy,
                 limit: limit,
-                total_found: result.rows.length
+                total_found: result.rows.length,
+                note: result.rows.length === 0 ? 'Nenhum afiliado encontrado no ranking - dados reais apenas' : 'Ranking baseado em dados reais'
             }
         });
 
@@ -707,20 +717,24 @@ app.get('/api/v1/affiliates/stats', async (req, res) => {
 
         const stats = generalResult.rows[0];
 
+        // Garantir que valores nulos sejam tratados como 0 ou N/A
+        const safeStats = {
+            total_affiliates: parseInt(stats.total_affiliates) || 0,
+            active_affiliates: parseInt(stats.active_affiliates) || 0,
+            inactive_affiliates: parseInt(stats.inactive_affiliates) || 0,
+            total_referrals: parseInt(stats.total_referrals) || 0,
+            total_cpa_earned: parseFloat(stats.total_cpa_earned) || 0,
+            avg_referrals_per_affiliate: stats.avg_referrals_per_affiliate ? parseFloat(stats.avg_referrals_per_affiliate).toFixed(2) : "0.00",
+            avg_cpa_per_affiliate: stats.avg_cpa_per_affiliate ? parseFloat(stats.avg_cpa_per_affiliate).toFixed(2) : "0.00"
+        };
+
         res.json({
             status: 'success',
             data: {
-                overview: {
-                    total_affiliates: parseInt(stats.total_affiliates),
-                    active_affiliates: parseInt(stats.active_affiliates),
-                    inactive_affiliates: parseInt(stats.inactive_affiliates),
-                    total_referrals: parseInt(stats.total_referrals),
-                    total_cpa_earned: parseFloat(stats.total_cpa_earned),
-                    avg_referrals_per_affiliate: parseFloat(stats.avg_referrals_per_affiliate).toFixed(2),
-                    avg_cpa_per_affiliate: parseFloat(stats.avg_cpa_per_affiliate).toFixed(2)
-                },
-                top_performers: topPerformersResult.rows,
-                generated_at: new Date().toISOString()
+                overview: safeStats,
+                top_performers: topPerformersResult.rows || [],
+                generated_at: new Date().toISOString(),
+                note: safeStats.total_affiliates === 0 ? 'Nenhum afiliado encontrado - dados reais apenas' : 'Dados reais do banco da operação'
             }
         });
 
@@ -941,164 +955,13 @@ app.post('/api/v1/sync/real-affiliates', async (req, res) => {
     }
 });
 
-// Endpoint direto para inserir dados sem usar sequência
-app.post('/api/v1/admin/insert-direct', async (req, res) => {
-    try {
-        if (!faturePool) {
-            return res.status(503).json({
-                status: 'error',
-                message: 'Banco de dados Fature não configurado'
-            });
-        }
+// ENDPOINT REMOVIDO: insert-direct
+// Este endpoint foi removido para garantir que apenas dados reais sejam utilizados.
+// O sistema agora trabalha exclusivamente com dados do banco da operação.
 
-        // Inserir dados diretamente com IDs incrementais
-        const testAffiliates = [
-            { external_id: 'AF001', name: 'João Silva', total_referrals: 15, total_cpa_earned: 750 },
-            { external_id: 'AF002', name: 'Maria Santos', total_referrals: 8, total_cpa_earned: 400 },
-            { external_id: 'AF003', name: 'Pedro Costa', total_referrals: 22, total_cpa_earned: 1100 },
-            { external_id: 'AF004', name: 'Ana Lima', total_referrals: 5, total_cpa_earned: 250 },
-            { external_id: 'AF005', name: 'Carlos Oliveira', total_referrals: 12, total_cpa_earned: 600 }
-        ];
-
-        let inserted = 0;
-        let startId = 1000; // Começar com ID 1000
-
-        for (let i = 0; i < testAffiliates.length; i++) {
-            const affiliate = testAffiliates[i];
-            try {
-                await faturePool.query(`
-                    INSERT INTO affiliates (affiliate_id, external_id, name, email, status, total_referrals, total_cpa_earned, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, 'active', $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                    ON CONFLICT (external_id) 
-                    DO UPDATE SET 
-                        name = EXCLUDED.name,
-                        total_referrals = EXCLUDED.total_referrals,
-                        total_cpa_earned = EXCLUDED.total_cpa_earned,
-                        updated_at = CURRENT_TIMESTAMP
-                `, [
-                    startId + i,
-                    affiliate.external_id,
-                    affiliate.name,
-                    `${affiliate.external_id.toLowerCase()}@fature.com`,
-                    affiliate.total_referrals,
-                    affiliate.total_cpa_earned
-                ]);
-                
-                inserted++;
-                console.log(`✅ Inserido: ${affiliate.name} (ID: ${startId + i})`);
-                
-            } catch (error) {
-                console.error(`❌ Erro ao inserir ${affiliate.name}:`, error);
-            }
-        }
-
-        // Verificar total após inserção
-        const totalResult = await faturePool.query('SELECT COUNT(*) as total FROM affiliates');
-        const total = parseInt(totalResult.rows[0].total);
-
-        res.json({
-            status: 'success',
-            message: `${inserted} afiliados inseridos com sucesso`,
-            data: {
-                inserted,
-                total,
-                affiliates: testAffiliates
-            }
-        });
-
-    } catch (error) {
-        console.error('Erro ao inserir dados diretos:', error);
-        res.status(500).json({
-            status: 'error',
-            message: 'Erro ao inserir dados de teste',
-            error: error.message
-        });
-    }
-});
-
-// Endpoint para inserir dados de teste
-app.post('/api/v1/admin/insert-test-data', async (req, res) => {
-    try {
-        if (!faturePool) {
-            return res.status(503).json({
-                status: 'error',
-                message: 'Banco de dados Fature não configurado'
-            });
-        }
-
-        console.log('🔄 Inserindo dados de teste...');
-        
-        // Dados de teste realistas
-        const testAffiliates = [
-            { external_id: 'AF001', name: 'João Silva', total_referrals: 15, total_cpa_earned: 750.00 },
-            { external_id: 'AF002', name: 'Maria Santos', total_referrals: 8, total_cpa_earned: 400.00 },
-            { external_id: 'AF003', name: 'Pedro Costa', total_referrals: 22, total_cpa_earned: 1100.00 },
-            { external_id: 'AF004', name: 'Ana Lima', total_referrals: 5, total_cpa_earned: 250.00 },
-            { external_id: 'AF005', name: 'Carlos Oliveira', total_referrals: 12, total_cpa_earned: 600.00 },
-            { external_id: 'AF006', name: 'Lucia Ferreira', total_referrals: 18, total_cpa_earned: 900.00 },
-            { external_id: 'AF007', name: 'Roberto Alves', total_referrals: 9, total_cpa_earned: 450.00 },
-            { external_id: 'AF008', name: 'Fernanda Rocha', total_referrals: 25, total_cpa_earned: 1250.00 },
-            { external_id: 'AF009', name: 'Marcos Pereira', total_referrals: 7, total_cpa_earned: 350.00 },
-            { external_id: 'AF010', name: 'Juliana Souza', total_referrals: 14, total_cpa_earned: 700.00 }
-        ];
-        
-        let inserted = 0;
-        
-        for (const affiliate of testAffiliates) {
-            try {
-                await faturePool.query(`
-                    INSERT INTO affiliates (affiliate_id, external_id, name, email, status, total_referrals, total_cpa_earned, created_at, updated_at)
-                    VALUES (nextval('affiliates_affiliate_id_seq'), $1, $2, $3, 'active', $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                    ON CONFLICT (external_id) 
-                    DO UPDATE SET 
-                        name = EXCLUDED.name,
-                        total_referrals = EXCLUDED.total_referrals,
-                        total_cpa_earned = EXCLUDED.total_cpa_earned,
-                        updated_at = CURRENT_TIMESTAMP
-                `, [
-                    affiliate.external_id,
-                    affiliate.name,
-                    `${affiliate.external_id.toLowerCase()}@fature.com`,
-                    affiliate.total_referrals,
-                    affiliate.total_cpa_earned
-                ]);
-                
-                inserted++;
-                console.log(`✅ Inserido: ${affiliate.name} (${affiliate.external_id})`);
-                
-            } catch (error) {
-                console.error(`❌ Erro ao inserir ${affiliate.external_id}:`, error.message);
-            }
-        }
-        
-        // Verificar quantos foram inseridos
-        const result = await faturePool.query('SELECT COUNT(*) as total FROM affiliates WHERE external_id IS NOT NULL');
-        const total = result.rows[0].total;
-        
-        res.json({
-            status: 'success',
-            message: 'Dados de teste inseridos com sucesso',
-            data: {
-                inserted,
-                total: parseInt(total),
-                affiliates: testAffiliates.map(a => ({
-                    external_id: a.external_id,
-                    name: a.name,
-                    total_referrals: a.total_referrals,
-                    total_cpa_earned: a.total_cpa_earned
-                }))
-            }
-        });
-        
-    } catch (error) {
-        console.error('❌ Erro ao inserir dados de teste:', error);
-        res.status(500).json({
-            status: 'error',
-            message: 'Erro ao inserir dados de teste',
-            error: error.message
-        });
-    }
-});
+// ENDPOINT REMOVIDO: insert-test-data
+// Este endpoint foi removido para garantir que apenas dados reais sejam utilizados.
+// O sistema agora trabalha exclusivamente com dados do banco da operação.
 
 // Endpoint para aplicar correções no banco
 app.post('/api/v1/admin/fix-database', async (req, res) => {
