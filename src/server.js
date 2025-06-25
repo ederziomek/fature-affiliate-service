@@ -595,14 +595,14 @@ app.get('/api/v1/sync/status', async (req, res) => {
             SELECT 
                 sync_type,
                 status,
-                last_sync,
+                completed_at as last_sync,
                 records_processed,
                 total_records,
                 error_message,
                 started_at,
                 completed_at
             FROM sync_control
-            ORDER BY last_sync DESC
+            ORDER BY completed_at DESC NULLS LAST
         `);
 
         res.json({
@@ -1060,6 +1060,81 @@ app.post('/api/v1/admin/fix-database', async (req, res) => {
         res.status(500).json({
             status: 'error',
             message: 'Erro ao aplicar correções no banco',
+            error: error.message
+        });
+    }
+});
+
+// Endpoint GET para sincronização manual (para facilitar testes)
+app.get('/api/v1/sync/manual', async (req, res) => {
+    try {
+        console.log('🔄 Iniciando sincronização manual...');
+        
+        // Buscar afiliados do banco da operação
+        const externalQuery = `
+            SELECT DISTINCT 
+                user_afil as external_id,
+                COUNT(DISTINCT user_id) as total_clients
+            FROM tracked 
+            WHERE user_afil IS NOT NULL 
+                AND user_id IS NOT NULL 
+                AND tracked_type_id = 1
+            GROUP BY user_afil
+            HAVING COUNT(DISTINCT user_id) > 0
+            LIMIT 50
+        `;
+
+        const externalResult = await externalPool.query(externalQuery);
+        
+        if (!externalResult.rows || externalResult.rows.length === 0) {
+            return res.json({
+                status: 'success',
+                message: 'Nenhum afiliado encontrado no banco da operação',
+                data: { processed: 0, total: 0 }
+            });
+        }
+        
+        let processed = 0;
+        
+        for (const row of externalResult.rows) {
+            try {
+                await faturePool.query(`
+                    INSERT INTO affiliates (external_id, total_referrals, total_commission, name, email, status, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT (external_id) 
+                    DO UPDATE SET 
+                        total_referrals = EXCLUDED.total_referrals,
+                        total_commission = EXCLUDED.total_commission,
+                        updated_at = CURRENT_TIMESTAMP
+                `, [
+                    row.external_id, 
+                    row.total_clients,
+                    row.total_clients * 50.0, // CPA de R$ 50 por cliente
+                    `Afiliado ${row.external_id}`,
+                    `afiliado${row.external_id}@fature.com`
+                ]);
+                
+                processed++;
+            } catch (error) {
+                console.error(`Erro ao processar afiliado ${row.external_id}:`, error.message);
+            }
+        }
+        
+        res.json({
+            status: 'success',
+            message: `Sincronização concluída com sucesso`,
+            data: {
+                processed: processed,
+                total: externalResult.rows.length,
+                note: 'Dados reais sincronizados do banco da operação'
+            }
+        });
+        
+    } catch (error) {
+        console.error('Erro na sincronização manual:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Erro na sincronização manual',
             error: error.message
         });
     }
