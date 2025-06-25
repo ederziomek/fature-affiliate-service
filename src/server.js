@@ -1071,6 +1071,49 @@ app.post('/api/v1/admin/fix-database', async (req, res) => {
     }
 });
 
+// Endpoint DEBUG para testar consulta de indicações
+app.get('/api/v1/debug/indicacoes', async (req, res) => {
+    try {
+        console.log('🔍 Testando consulta de indicações...');
+        
+        const externalQuery = `
+            SELECT 
+                user_afil as external_id,
+                COUNT(DISTINCT user_id) as total_indicacoes,
+                COUNT(DISTINCT CASE WHEN tracked_type_id = 1 THEN user_id END) as nivel_1,
+                COUNT(DISTINCT CASE WHEN tracked_type_id = 2 THEN user_id END) as nivel_2,
+                COUNT(DISTINCT CASE WHEN tracked_type_id NOT IN (1,2) THEN user_id END) as outros_niveis
+            FROM tracked 
+            WHERE user_afil IS NOT NULL 
+                AND user_id IS NOT NULL
+            GROUP BY user_afil
+            HAVING COUNT(DISTINCT user_id) > 0
+            ORDER BY total_indicacoes DESC
+            LIMIT 5
+        `;
+
+        const externalResult = await externalPool.query(externalQuery);
+        
+        res.json({
+            status: 'success',
+            message: 'Consulta de debug executada',
+            data: {
+                query: externalQuery,
+                results: externalResult.rows,
+                total_found: externalResult.rows.length
+            }
+        });
+
+    } catch (error) {
+        console.error('Erro no debug:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Erro ao executar debug',
+            error: error.message
+        });
+    }
+});
+
 // Endpoint GET para sincronização manual (para facilitar testes)
 app.get('/api/v1/sync/manual', async (req, res) => {
     try {
