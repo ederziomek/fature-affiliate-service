@@ -1257,3 +1257,10 @@ process.on('SIGINT', () => {
     externalPool.end();
     process.exit(0);
 });
+
+
+// ===== NOVOS ENDPOINTS ESTRUTURA ROBUSTA =====
+// Importar e adicionar os novos endpoints
+require('./robust_endpoints');
+
+
