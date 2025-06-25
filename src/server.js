@@ -232,11 +232,14 @@ app.get('/api/v1/affiliates', async (req, res) => {
                 name,
                 email,
                 status,
-                total_clients,
+                total_referrals_calculated as total_clients,
+                level_1_referrals,
+                level_2_referrals,
+                other_level_referrals,
                 total_commission,
                 created_at
             FROM affiliates
-            ORDER BY total_clients DESC
+            ORDER BY total_referrals_calculated DESC
             LIMIT $1 OFFSET $2
         `;
 
@@ -689,10 +692,13 @@ app.get('/api/v1/affiliates/stats', async (req, res) => {
                 COUNT(*) as total_affiliates,
                 COUNT(CASE WHEN status = 'active' THEN 1 END) as active_affiliates,
                 COUNT(CASE WHEN status = 'inactive' THEN 1 END) as inactive_affiliates,
-                COALESCE(SUM(total_referrals), 0) as total_referrals,
-                COALESCE(SUM(total_cpa_earned), 0) as total_cpa_earned,
-                COALESCE(AVG(total_referrals), 0) as avg_referrals_per_affiliate,
-                COALESCE(AVG(total_cpa_earned), 0) as avg_cpa_per_affiliate
+                COALESCE(SUM(total_referrals_calculated), 0) as total_referrals,
+                COALESCE(SUM(level_1_referrals), 0) as total_level_1,
+                COALESCE(SUM(level_2_referrals), 0) as total_level_2,
+                COALESCE(SUM(other_level_referrals), 0) as total_other_levels,
+                COALESCE(SUM(total_commission), 0) as total_commission_paid,
+                COALESCE(AVG(total_referrals_calculated), 0) as avg_referrals_per_affiliate,
+                COALESCE(AVG(total_commission), 0) as avg_commission_per_affiliate
             FROM affiliates
         `;
 
@@ -1068,20 +1074,23 @@ app.post('/api/v1/admin/fix-database', async (req, res) => {
 // Endpoint GET para sincronização manual (para facilitar testes)
 app.get('/api/v1/sync/manual', async (req, res) => {
     try {
-        console.log('🔄 Iniciando sincronização manual...');
+        console.log('🔄 Iniciando sincronização manual com cálculo de indicações...');
         
-        // Buscar afiliados do banco da operação
+        // Buscar afiliados do banco da operação com indicações por nível
         const externalQuery = `
-            SELECT DISTINCT 
+            SELECT 
                 user_afil as external_id,
-                COUNT(DISTINCT user_id) as total_clients
+                COUNT(DISTINCT user_id) as total_indicacoes,
+                COUNT(DISTINCT CASE WHEN tracked_type_id = 1 THEN user_id END) as nivel_1,
+                COUNT(DISTINCT CASE WHEN tracked_type_id = 2 THEN user_id END) as nivel_2,
+                COUNT(DISTINCT CASE WHEN tracked_type_id NOT IN (1,2) THEN user_id END) as outros_niveis
             FROM tracked 
             WHERE user_afil IS NOT NULL 
-                AND user_id IS NOT NULL 
-                AND tracked_type_id = 1
+                AND user_id IS NOT NULL
             GROUP BY user_afil
             HAVING COUNT(DISTINCT user_id) > 0
-            LIMIT 50
+            ORDER BY total_indicacoes DESC
+            LIMIT 100
         `;
 
         const externalResult = await externalPool.query(externalQuery);
@@ -1099,17 +1108,38 @@ app.get('/api/v1/sync/manual', async (req, res) => {
         for (const row of externalResult.rows) {
             try {
                 await faturePool.query(`
-                    INSERT INTO affiliates (external_id, total_referrals, total_commission, name, email, status, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    INSERT INTO affiliates (
+                        external_id, 
+                        total_referrals, 
+                        total_referrals_calculated,
+                        level_1_referrals,
+                        level_2_referrals,
+                        other_level_referrals,
+                        total_commission, 
+                        name, 
+                        email, 
+                        status, 
+                        created_at, 
+                        updated_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     ON CONFLICT (external_id) 
                     DO UPDATE SET 
                         total_referrals = EXCLUDED.total_referrals,
+                        total_referrals_calculated = EXCLUDED.total_referrals_calculated,
+                        level_1_referrals = EXCLUDED.level_1_referrals,
+                        level_2_referrals = EXCLUDED.level_2_referrals,
+                        other_level_referrals = EXCLUDED.other_level_referrals,
                         total_commission = EXCLUDED.total_commission,
                         updated_at = CURRENT_TIMESTAMP
                 `, [
                     row.external_id, 
-                    row.total_clients,
-                    row.total_clients * 50.0, // CPA de R$ 50 por cliente
+                    row.total_indicacoes, // total_referrals
+                    row.total_indicacoes, // total_referrals_calculated
+                    row.nivel_1 || 0,     // level_1_referrals
+                    row.nivel_2 || 0,     // level_2_referrals
+                    row.outros_niveis || 0, // other_level_referrals
+                    row.total_indicacoes * 50.0, // total_commission (CPA de R$ 50 por indicação)
                     `Afiliado ${row.external_id}`,
                     `afiliado${row.external_id}@fature.com`
                 ]);
