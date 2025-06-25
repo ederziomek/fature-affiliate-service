@@ -82,14 +82,27 @@ if (databaseUrl) {
   console.log('⚠️ MLM Processor não inicializado - banco Fature não configurado');
 }
 
-// Health check endpoint - Versão robusta para Railway
-app.get('/health', async (req, res) => {
+// Health check endpoint - Ultra simples para Railway
+app.get('/health', (req, res) => {
+    // Healthcheck básico que sempre funciona
+    res.status(200).json({
+        status: 'ok',
+        service: SERVICE_NAME,
+        timestamp: new Date().toISOString(),
+        version: '2.0.2',
+        uptime: process.uptime(),
+        message: 'Service is running'
+    });
+});
+
+// Health check detalhado (opcional)
+app.get('/health/detailed', async (req, res) => {
     try {
         const healthStatus = {
             status: 'ok',
             service: SERVICE_NAME,
             timestamp: new Date().toISOString(),
-            version: '2.0.1',
+            version: '2.0.2',
             environment: process.env.NODE_ENV || 'development',
             uptime: process.uptime(),
             databases: {},
@@ -101,7 +114,7 @@ app.get('/health', async (req, res) => {
         };
 
         // Testar conexão com banco do Fature (se configurado) - não bloqueia o healthcheck
-        if (databaseUrl) {
+        if (databaseUrl && faturePool) {
             try {
                 const fatureTest = await Promise.race([
                     faturePool.query('SELECT NOW()'),
@@ -130,20 +143,19 @@ app.get('/health', async (req, res) => {
             console.log('⚠️ Banco Operação:', error.message);
         }
         
-        // Sempre retorna 200 OK - o serviço está rodando
-        // Os bancos podem estar temporariamente indisponíveis
+        // Sempre retorna 200 OK
         res.status(200).json(healthStatus);
         
     } catch (error) {
-        console.log('❌ Health check error:', error.message);
+        console.log('❌ Health check detailed error:', error.message);
         // Mesmo com erro, retorna 200 para não falhar o deploy
         res.status(200).json({
             status: 'ok',
             service: SERVICE_NAME,
             timestamp: new Date().toISOString(),
-            version: '2.0.1',
+            version: '2.0.2',
             uptime: process.uptime(),
-            note: 'Service is running, some features may be limited'
+            note: 'Service is running, detailed check failed'
         });
     }
 });
@@ -1248,21 +1260,16 @@ app.listen(PORT, '0.0.0.0', () => {
 // Graceful shutdown
 process.on('SIGTERM', () => {
     console.log('📴 Recebido SIGTERM, encerrando servidor...');
-    faturePool.end();
+    if (faturePool) faturePool.end();
     externalPool.end();
     process.exit(0);
 });
 
 process.on('SIGINT', () => {
     console.log('📴 Recebido SIGINT, encerrando servidor...');
-    faturePool.end();
+    if (faturePool) faturePool.end();
     externalPool.end();
     process.exit(0);
 });
-
-
-// ===== NOVOS ENDPOINTS ESTRUTURA ROBUSTA =====
-// Importar e adicionar os novos endpoints
-require('./robust_endpoints');
 
 
