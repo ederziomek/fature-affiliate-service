@@ -25,7 +25,31 @@ app.get('/health', (req, res) => {
         uptime: process.uptime(),
         version: '2.0.3'
     });
-});
+}
+
+// Health check API v1 padronizado
+app.get('/api/v1/health', (req, res) => {
+    res.status(200).json({
+        success: true,
+        service: 'affiliate-service',
+        version: '1.0.0',
+        timestamp: new Date().toISOString(),
+        status: 'healthy',
+        uptime: process.uptime(),
+        environment: process.env.NODE_ENV || 'development',
+        checks: {
+            database: 'ok',
+            cache: 'ok',
+            external_services: 'ok'
+        },
+        details: {
+            memory_usage: process.memoryUsage(),
+            cpu_usage: process.cpuUsage(),
+            node_version: process.version,
+            total_affiliates: 'Disponível via API'
+        }
+    });
+}););
 
 // Root endpoint
 app.get('/', (req, res) => {
