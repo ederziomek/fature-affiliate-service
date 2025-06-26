@@ -49,7 +49,7 @@ app.get('/api/v1/health', (req, res) => {
             total_affiliates: 'Disponível via API'
         }
     });
-}););
+});
 
 // Root endpoint
 app.get('/', (req, res) => {
