@@ -25,7 +25,7 @@ app.get('/health', (req, res) => {
         uptime: process.uptime(),
         version: '2.0.3'
     });
-}
+});
 
 // Health check API v1 padronizado
 app.get('/api/v1/health', (req, res) => {
